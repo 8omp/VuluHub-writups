@@ -31,7 +31,7 @@ Currently scanning: Finished!   |   Screen View: Unique Hosts
 
 ## ポートスキャン
 
-次に`nmap`を実行していきます。
+次に`nmap`を実行していきます。nmapのオプションの説明ははあとで書く。
 
 ```
 ┌──(kali㉿kali)-[~]
@@ -59,3 +59,120 @@ Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
 Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
 Nmap done: 1 IP address (1 host up) scanned in 19.52 seconds
 ```
+
+# 列挙と初期侵入
+
+## FTPの調査
+
+FTPのAnonymousログインが有効になっていることがnmapの結果から分かったので、FTPにAnonymousログインし、2つのファイルをダウンロードして中身を見ていきます。
+
+```
+┌──(kali㉿kali)-[~/VuluHub/Potato1]
+└─$ ftp -P 2112 192.168.56.101
+Connected to 192.168.56.101.
+220 ProFTPD Server (Debian) [::ffff:192.168.56.101]
+Name (192.168.56.101:kali): anonymous
+331 Anonymous login ok, send your complete email address as your password
+Password: 
+230-Welcome, archive user anonymous@192.168.56.103 !
+230-
+230-The local time is: Sun Feb 15 12:52:43 2026
+230-
+230 Anonymous access granted, restrictions apply
+Remote system type is UNIX.
+Using binary mode to transfer files.
+ftp> get index.php.bak
+local: index.php.bak remote: index.php.bak
+229 Entering Extended Passive Mode (|||44330|)
+150 Opening BINARY mode data connection for index.php.bak (901 bytes)
+   901       75.42 KiB/s 
+226 Transfer complete
+901 bytes received in 00:00 (62.23 KiB/s)
+ftp> get welcome.msg
+local: welcome.msg remote: welcome.msg
+229 Entering Extended Passive Mode (|||29870|)
+150 Opening BINARY mode data connection for welcome.msg (54 bytes)
+    54       45.38 KiB/s 
+226 Transfer complete
+54 bytes received in 00:00 (8.49 KiB/s)
+ftp> exit
+221 Goodbye.
+```
+
+`welcome.msg`には特にめぼしい情報はなかったため、`index.php.bak`を覗いていきます。
+
+```
+┌──(kali㉿kali)-[~/VuluHub/Potato1]
+└─$ cat index.php.bak
+<html>
+<head></head>
+<body>
+
+<?php
+
+$pass= "potato"; //note Change this password regularly
+
+if($_GET['login']==="1"){
+  if (strcmp($_POST['username'], "admin") == 0  && strcmp($_POST['password'], $pass) == 0) {
+    echo "Welcome! </br> Go to the <a href=\"dashboard.php\">dashboard</a>";
+    setcookie('pass', $pass, time() + 365*24*3600);
+  }else{
+    echo "<p>Bad login/password! </br> Return to the <a href=\"index.php\">login page</a> <p>";
+  }
+  exit();
+}
+?>
+
+
+  <form action="index.php?login=1" method="POST">
+                <h1>Login</h1>
+                <label><b>User:</b></label>
+                <input type="text" name="username" required>
+                </br>
+                <label><b>Password:</b></label>
+                <input type="password" name="password" required>
+                </br>
+                <input type="submit" id='submit' value='Login' >
+  </form>
+</body>
+</html>
+```
+
+`username : admin`, `password: potato`でログインができそうです...
+
+## HTTPの調査
+
+webサービスにアクセスします。(しゃしんをはる)
+
+`gobuster`を実行します。
+
+```
+┌──(kali㉿kali)-[~/VuluHub/Potato1]
+└─$ gobuster dir -u http://192.168.56.101 -w /usr/share/wordlists/dirb/common.txt
+===============================================================
+Gobuster v3.8.2
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://192.168.56.101
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/wordlists/dirb/common.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.8.2
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+.htpasswd            (Status: 403) [Size: 279]
+.htaccess            (Status: 403) [Size: 279]
+admin                (Status: 301) [Size: 316] [--> http://192.168.56.101/admin/]
+.hta                 (Status: 403) [Size: 279]
+index.php            (Status: 200) [Size: 245]
+server-status        (Status: 403) [Size: 279]
+Progress: 4613 / 4613 (100.00%)
+===============================================================
+Finished
+===============================================================
+```
+
+`/admin`にアクセスすると、ログインフォームが表示されたので、先ほどのusernameとpasswordでログインしようとしたところ、以下が表示されました。おそらくpasswordが変更されていると考えられます。(しゃしんはる)
